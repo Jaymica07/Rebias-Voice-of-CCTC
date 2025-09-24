@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   View,
   Text,
@@ -10,104 +10,37 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useGoals } from "../../hooks/useGoals";
 
-const STORAGE_KEY = "announcements";
-
-export default function Announcements() {
+export default function AnnouncementsScreen() {
   const router = useRouter();
+  const { announcements, saveAnnouncement, deleteAnnouncement, user } = useGoals();
 
-  const [announcements, setAnnouncements] = useState([]);
-  const [newAnnouncement, setNewAnnouncement] = useState({
-    title: "",
-    date: "",
-    description: "",
-  });
+  const [form, setForm] = useState({ title: "", date: "", description: "" });
   const [editingId, setEditingId] = useState(null);
 
-  // Load announcements when component mounts
-  useEffect(() => {
-    const loadAnnouncements = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.length > 0) {
-            setAnnouncements(parsed);
-            return;
-          }
-        }
-
-        // Default announcements if no stored or empty data
-        const defaults = [
-          {
-            id: "1",
-            title: "Class Suspension",
-            date: "Sept 21, 2025",
-            description: "All classes are suspended due to weather conditions.",
-          },
-          {
-            id: "2",
-            title: "Upcoming Exams",
-            date: "Sept 28, 2025",
-            description: "Midterm examinations will start next week.",
-          },
-          {
-            id: "3",
-            title: "Meetings",
-            date: "Sept 25, 2025",
-            description: "Faculty meeting will be held in the auditorium.",
-          },
-        ];
-
-        setAnnouncements(defaults);
-      } catch (error) {
-        console.error("Failed to load announcements:", error);
-      }
-    };
-
-    loadAnnouncements();
-  }, []);
-
-  // Save announcements whenever it changes
-  useEffect(() => {
-    const saveAnnouncements = async () => {
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(announcements));
-      } catch (error) {
-        console.error("Failed to save announcements:", error);
-      }
-    };
-    saveAnnouncements();
-  }, [announcements]);
-
-  // Add or Edit
-  const handleAddOrEdit = () => {
-    const { title, date, description } = newAnnouncement;
+  const handleAddOrEdit = async () => {
+    const { title, date, description } = form;
     if (!title || !date || !description) {
-      Alert.alert("Error", "Please fill all fields");
+      Alert.alert("⚠️ Error", "Please fill all fields");
       return;
     }
 
-    if (editingId) {
-      setAnnouncements((prev) =>
-        prev.map((item) =>
-          item.id === editingId ? { ...item, title, date, description } : item
-        )
-      );
-      setEditingId(null);
-    } else {
-      const id = Date.now().toString();
-      setAnnouncements((prev) => [...prev, { id, ...newAnnouncement }]);
-    }
+    await saveAnnouncement(
+      {
+        title,
+        date,
+        description,
+      },
+      editingId
+    );
 
-    setNewAnnouncement({ title: "", date: "", description: "" });
+    setForm({ title: "", date: "", description: "" });
+    setEditingId(null);
   };
 
-  // Edit
   const handleEdit = (item) => {
-    setNewAnnouncement({
+    setForm({
       title: item.title,
       date: item.date,
       description: item.description,
@@ -115,67 +48,58 @@ export default function Announcements() {
     setEditingId(item.id);
   };
 
-  // Delete
-  const handleDelete = (id) => {
-    setAnnouncements((prev) => prev.filter((item) => item.id !== id));
-  };
-
-  // Render each announcement
   const renderItem = ({ item }) => (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{item.title}</Text>
       <Text style={styles.cardDate}>{item.date}</Text>
       <Text style={styles.cardDescription}>{item.description}</Text>
-      <View style={styles.cardButtons}>
-        <Pressable style={styles.editButton} onPress={() => handleEdit(item)}>
-          <Ionicons name="pencil" size={20} color="white" />
-        </Pressable>
-        <Pressable
-          style={styles.deleteButton}
-          onPress={() => handleDelete(item.id)}
-        >
-          <Ionicons name="trash" size={20} color="white" />
-        </Pressable>
-      </View>
+
+      {/* Show edit/delete only if current user is the owner */}
+      {item.ownerId === user?.id && (
+        <View style={styles.cardButtons}>
+          <Pressable style={styles.editButton} onPress={() => handleEdit(item)}>
+            <Ionicons name="pencil" size={20} color="#fff" />
+          </Pressable>
+          <Pressable
+            style={styles.deleteButton}
+            onPress={() => deleteAnnouncement(item.id)}
+          >
+            <Ionicons name="trash" size={20} color="#fff" />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 
   return (
     <View style={styles.container}>
-      {/* Back Button */}
+      {/* Back to Home */}
       <Pressable style={styles.backButton} onPress={() => router.push("/home")}>
         <Ionicons name="home" size={20} color="#000" />
         <Text style={styles.backText}>Back to Home</Text>
       </Pressable>
 
-      {/* Header */}
       <Text style={styles.header}>Announcements</Text>
 
-      {/* Add/Edit Form */}
+      {/* Form */}
       <View style={styles.form}>
         <TextInput
           style={styles.input}
           placeholder="Title"
-          value={newAnnouncement.title}
-          onChangeText={(text) =>
-            setNewAnnouncement({ ...newAnnouncement, title: text })
-          }
+          value={form.title}
+          onChangeText={(text) => setForm({ ...form, title: text })}
         />
         <TextInput
           style={styles.input}
-          placeholder="Date (e.g., Sept 20, 2025)"
-          value={newAnnouncement.date}
-          onChangeText={(text) =>
-            setNewAnnouncement({ ...newAnnouncement, date: text })
-          }
+          placeholder="Date (e.g., Sept 24, 2025)"
+          value={form.date}
+          onChangeText={(text) => setForm({ ...form, date: text })}
         />
         <TextInput
           style={styles.input}
           placeholder="Description"
-          value={newAnnouncement.description}
-          onChangeText={(text) =>
-            setNewAnnouncement({ ...newAnnouncement, description: text })
-          }
+          value={form.description}
+          onChangeText={(text) => setForm({ ...form, description: text })}
         />
         <Pressable style={styles.addButton} onPress={handleAddOrEdit}>
           <Text style={styles.addButtonText}>
@@ -210,12 +134,7 @@ const styles = StyleSheet.create({
     borderColor: "#000",
     alignSelf: "flex-start",
   },
-  backText: {
-    color: "#000",
-    marginLeft: 8,
-    fontWeight: "bold",
-    fontSize: 16,
-  },
+  backText: { color: "#000", marginLeft: 8, fontWeight: "bold", fontSize: 16 },
 
   header: {
     fontSize: 28,
@@ -228,7 +147,7 @@ const styles = StyleSheet.create({
 
   form: { marginTop: 20 },
   input: {
-    backgroundColor: "white",
+    backgroundColor: "#fff",
     padding: 12,
     borderRadius: 10,
     marginBottom: 10,
@@ -236,6 +155,7 @@ const styles = StyleSheet.create({
     borderColor: "#000",
     fontStyle: "italic",
   },
+
   addButton: {
     backgroundColor: "#000",
     padding: 16,
@@ -243,46 +163,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  addButtonText: {
-    color: "white",
-    fontWeight: "bold",
-    fontSize: 16,
-    fontStyle: "italic",
-  },
+  addButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
 
   card: {
-    backgroundColor: "white",
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 15,
+    backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#000",
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 15,
   },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 4,
-    color: "#000",
-    fontStyle: "italic",
-  },
-  cardDate: { fontSize: 14, color: "#555", marginBottom: 10, fontStyle: "italic" },
-  cardDescription: {
-    fontSize: 16,
-    color: "#333",
-    lineHeight: 22,
-    fontStyle: "italic",
-  },
+  cardTitle: { fontSize: 20, fontWeight: "bold", marginBottom: 4, color: "#000" },
+  cardDate: { fontSize: 14, color: "#555", marginBottom: 8 },
+  cardDescription: { fontSize: 16, color: "#333", lineHeight: 22 },
 
   cardButtons: {
     flexDirection: "row",
     justifyContent: "flex-end",
     marginTop: 10,
+    gap: 10,
   },
-  editButton: {
-    backgroundColor: "#444",
-    padding: 8,
-    borderRadius: 8,
-    marginRight: 8,
-  },
+  editButton: { backgroundColor: "#333", padding: 8, borderRadius: 8 },
   deleteButton: { backgroundColor: "#d9534f", padding: 8, borderRadius: 8 },
 });

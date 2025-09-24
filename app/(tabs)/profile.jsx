@@ -1,63 +1,21 @@
-import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  ScrollView,
-  Alert,
-  Image,
+import React, { useState } from "react";
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Pressable, 
+  ScrollView, 
+  Image, 
+  Alert 
 } from "react-native";
-import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useGoals } from "../../hooks/useGoals";
 
 export default function Profile() {
-  const router = useRouter();
-  const [student, setStudent] = useState(null);
-
-  // Load profile on mount
-  useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        const loggedInEmail = await AsyncStorage.getItem("loggedInUser");
-
-        if (!loggedInEmail) {
-          Alert.alert("Not logged in", "Please log in first.");
-          router.replace("/login");
-          return;
-        }
-
-        const userData = await AsyncStorage.getItem(`user_${loggedInEmail}`);
-        if (userData) {
-          const parsedUser = JSON.parse(userData);
-
-          setStudent({
-            name: parsedUser.name || "Student",
-            course: parsedUser.course || "BSIT",
-            year: parsedUser.year || "3rd Year",
-            email: parsedUser.email || loggedInEmail,
-            profilePic: parsedUser.profilePic || null, // no default female photo
-          });
-        }
-      } catch (error) {
-        console.error(error);
-        Alert.alert("Error", "Failed to load profile.");
-      }
-    };
-
-    loadProfile();
-  }, []);
-
-  const handleLogout = async () => {
-    await AsyncStorage.removeItem("loggedInUser");
-    router.replace("/login");
-  };
-
-  const goToHome = () => {
-    router.push("/home");
-  };
+  const [profilePic, setProfilePic] = useState(null);
+  const { user, logout } = useGoals();
 
   // Change profile picture
   const handleChangeProfilePic = async () => {
@@ -71,84 +29,73 @@ export default function Profile() {
 
       if (!result.canceled) {
         const newPic = result.assets[0].uri;
-
-        const loggedInEmail = await AsyncStorage.getItem("loggedInUser");
-        if (!loggedInEmail) return;
-
-        const userData = await AsyncStorage.getItem(`user_${loggedInEmail}`);
-        let parsedUser = userData ? JSON.parse(userData) : {};
-
-        parsedUser.profilePic = newPic;
-
-        await AsyncStorage.setItem(
-          `user_${loggedInEmail}`,
-          JSON.stringify(parsedUser)
-        );
-
-        setStudent((prev) => ({
-          ...prev,
-          profilePic: newPic,
-        }));
-
-        Alert.alert("Success", "Profile picture updated!");
+        setProfilePic(newPic);
+        Alert.alert("✅ Success", "Profile picture updated!");
       }
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "Failed to update profile picture.");
+      Alert.alert("❌ Error", "Failed to update profile picture.");
     }
   };
 
-  if (!student) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Loading Profile...</Text>
-      </View>
-    );
-  }
+  // Handle logout
+  const handleLogout = () => {
+    logout(); // clear user in context
+    router.replace("/"); // redirect to login
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       {/* Back to Home button */}
-      <Pressable style={styles.backButton} onPress={goToHome}>
+      <Pressable style={styles.backButton} onPress={() => router.push("../home")}>
         <Ionicons name="home" size={20} color="#000" />
         <Text style={styles.backButtonText}>Back to Home</Text>
       </Pressable>
 
       <View style={styles.profileSection}>
-        {student.profilePic ? (
-          <Image source={{ uri: student.profilePic }} style={styles.profilePic} />
+        {profilePic ? (
+          <Image source={{ uri: profilePic }} style={styles.profilePic} />
         ) : (
           <Ionicons name="person-circle" size={140} color="#000" />
         )}
 
         <Pressable style={styles.changePicButton} onPress={handleChangeProfilePic}>
           <Text style={styles.changePicText}>
-            {student.profilePic ? "Change Picture" : "Add Picture"}
+            {profilePic ? "Change Picture" : "Add Picture"}
           </Text>
         </Pressable>
       </View>
 
       <Text style={styles.title}>👤 My Profile</Text>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Name</Text>
-        <Text style={styles.value}>{student.name}</Text>
-      </View>
+      {/* Display user info from Firestore */}
+      {user ? (
+        <>
+          <View style={styles.card}>
+            <Text style={styles.label}>Name</Text>
+            <Text style={styles.value}>{user.name}</Text>
+          </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Course</Text>
-        <Text style={styles.value}>{student.course}</Text>
-      </View>
+          <View style={styles.card}>
+            <Text style={styles.label}>Course</Text>
+            <Text style={styles.value}>{user.course}</Text>
+          </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Year Level</Text>
-        <Text style={styles.value}>{student.year}</Text>
-      </View>
+          <View style={styles.card}>
+            <Text style={styles.label}>Year Level</Text>
+            <Text style={styles.value}>{user.year}</Text>
+          </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Email</Text>
-        <Text style={styles.value}>{student.email}</Text>
-      </View>
+          <View style={styles.card}>
+            <Text style={styles.label}>Email</Text>
+            <Text style={styles.value}>{user.email}</Text>
+          </View>
+        </>
+      ) : (
+        <Text style={{ marginTop: 20, fontSize: 16, fontStyle: "italic", color: "gray" }}>
+          No user logged in.
+        </Text>
+      )}
 
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Ionicons name="log-out-outline" size={20} color="#fff" />

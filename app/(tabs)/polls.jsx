@@ -1,94 +1,59 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   TextInput,
   Pressable,
-  FlatList,
   Image,
-  StyleSheet,
+  FlatList,
   ScrollView,
+  StyleSheet,
+  Alert,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useGoals } from "../../hooks/useGoals"; // firebase context
 
 export default function PollsScreen() {
+  const { polls, savePoll, deletePoll, votePoll, user } = useGoals();
   const router = useRouter();
 
-  const [polls, setPolls] = useState([]);
   const [editingId, setEditingId] = useState(null);
-
   const [newPoll, setNewPoll] = useState({
     question: "",
     options: [{ id: Date.now().toString(), text: "", image: null, votes: 0 }],
   });
 
-  // Load polls from storage
-  useEffect(() => {
-    const loadPolls = async () => {
-      const storedPolls = await AsyncStorage.getItem("polls");
-      if (storedPolls) setPolls(JSON.parse(storedPolls));
-    };
-    loadPolls();
-  }, []);
-
-  const savePolls = async (updatedPolls) => {
-    setPolls(updatedPolls);
-    await AsyncStorage.setItem("polls", JSON.stringify(updatedPolls));
-  };
-
-  const handleAddOrEdit = () => {
+  // create or update poll
+  const handleAddOrEdit = async () => {
     if (!newPoll.question.trim()) return;
-
-    if (editingId) {
-      const updatedPolls = polls.map((poll) =>
-        poll.id === editingId ? { ...newPoll, id: editingId } : poll
-      );
-      savePolls(updatedPolls);
-      setEditingId(null);
-    } else {
-      const updatedPolls = [
-        ...polls,
-        { ...newPoll, id: Date.now().toString() },
-      ];
-      savePolls(updatedPolls);
+    if (newPoll.options.length < 2) {
+      Alert.alert("⚠️ Poll needs at least 2 options");
+      return;
     }
-
+    await savePoll(newPoll, editingId);
+    setEditingId(null);
     setNewPoll({
       question: "",
       options: [{ id: Date.now().toString(), text: "", image: null, votes: 0 }],
     });
   };
 
-  const handleDeletePoll = (id) => {
-    const updatedPolls = polls.filter((poll) => poll.id !== id);
-    savePolls(updatedPolls);
-  };
-
+  // edit existing poll (only owner)
   const handleEdit = (poll) => {
+    if (poll.ownerId !== user?.id) {
+      Alert.alert("🚫 Not Allowed", "You can only edit your own polls.");
+      return;
+    }
     setNewPoll({
       question: poll.question,
-      options: poll.options.map((opt) => ({ ...opt })),
+      options: poll.options.map((o) => ({ ...o })),
     });
     setEditingId(poll.id);
   };
 
-  const handleVote = (pollId, optionId) => {
-    const updatedPolls = polls.map((poll) =>
-      poll.id === pollId
-        ? {
-            ...poll,
-            options: poll.options.map((opt) =>
-              opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt
-            ),
-          }
-        : poll
-    );
-    savePolls(updatedPolls);
-  };
-
+  // pick image for option
   const pickOptionImage = async (index) => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -96,7 +61,6 @@ export default function PollsScreen() {
       aspect: [4, 3],
       quality: 1,
     });
-
     if (!result.canceled) {
       const updatedOptions = [...newPoll.options];
       updatedOptions[index].image = result.assets[0].uri;
@@ -104,58 +68,75 @@ export default function PollsScreen() {
     }
   };
 
-  const addOption = () => {
-    const newOption = {
-      id: Date.now().toString(),
-      text: "",
-      image: null,
-      votes: 0,
-    };
-    setNewPoll({ ...newPoll, options: [...newPoll.options, newOption] });
-  };
+  const addOption = () =>
+    setNewPoll({
+      ...newPoll,
+      options: [
+        ...newPoll.options,
+        { id: Date.now().toString(), text: "", image: null, votes: 0 },
+      ],
+    });
 
-  const removeOption = (id) => {
-    const updatedOptions = newPoll.options.filter((opt) => opt.id !== id);
-    setNewPoll({ ...newPoll, options: updatedOptions });
-  };
+  const removeOption = (id) =>
+    setNewPoll({
+      ...newPoll,
+      options: newPoll.options.filter((o) => o.id !== id),
+    });
 
-  // RENDER ITEM
-  const renderItem = ({ item }) => (
-    <View style={styles.pollItem}>
-      <Text style={styles.pollQuestion}>{item.question}</Text>
-      <View style={styles.optionsRow}>
-        {item.options.map((opt) => (
-          <View key={opt.id} style={styles.optionContainer}>
-            {opt.image && (
-              <Image source={{ uri: opt.image }} style={styles.optionImage} />
-            )}
+  // render each poll
+  const renderItem = ({ item }) => {
+    const votedOptionId = item.voters?.find(
+      (v) => v.userId === user?.id
+    )?.optionId;
+
+    return (
+      <View style={styles.pollItem}>
+        <Text style={styles.pollQuestion}>{item.question}</Text>
+        <View style={styles.optionsRow}>
+          {item.options.map((opt) => (
+            <View key={opt.id} style={styles.optionContainer}>
+              {opt.image && (
+                <Image source={{ uri: opt.image }} style={styles.optionImage} />
+              )}
+              <Pressable
+                style={[
+                  styles.voteButton,
+                  votedOptionId === opt.id && { backgroundColor: "#28a745" },
+                ]}
+                onPress={() => votePoll(item.id, opt.id)}
+              >
+                <Text style={styles.voteButtonText}>
+                  {votedOptionId === opt.id ? "✔ Voted" : `Vote ${opt.text}`}
+                </Text>
+              </Pressable>
+              <Text style={styles.voteCount}>{opt.votes} vote(s)</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* only owner can edit/delete */}
+        {item.ownerId === user?.id && (
+          <View style={styles.actions}>
             <Pressable
-              style={styles.voteButton}
-              onPress={() => handleVote(item.id, opt.id)}
+              style={styles.editButton}
+              onPress={() => handleEdit(item)}
             >
-              <Text style={styles.voteButtonText}>Vote {opt.text}</Text>
+              <Ionicons name="pencil" size={18} color="#fff" />
             </Pressable>
-            <Text style={styles.voteCount}>{opt.votes} vote(s)</Text>
+            <Pressable
+              style={styles.deleteButton}
+              onPress={() => deletePoll(item.id)}
+            >
+              <Ionicons name="trash" size={18} color="white" />
+            </Pressable>
           </View>
-        ))}
+        )}
       </View>
-      <View style={styles.actions}>
-        <Pressable style={styles.editButton} onPress={() => handleEdit(item)}>
-          <Ionicons name="pencil" size={18} color="#fff" />
-        </Pressable>
-        <Pressable
-          style={styles.deleteButton}
-          onPress={() => handleDeletePoll(item.id)}
-        >
-          <Ionicons name="trash" size={18} color="white" />
-        </Pressable>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
-      {/* Back Button */}
       <Pressable style={styles.backButton} onPress={() => router.push("/home")}>
         <Ionicons name="home" size={20} color="#000" />
         <Text style={styles.backButtonText}>Back to Home</Text>
@@ -237,7 +218,6 @@ export default function PollsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 15, backgroundColor: "#f5f5f5" },
-
   backButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -250,9 +230,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   backButtonText: { color: "#000", marginLeft: 6, fontWeight: "bold" },
-
   header: { fontSize: 22, fontWeight: "bold", marginBottom: 15, textAlign: "center" },
-
   form: { marginBottom: 15, maxHeight: 350 },
   input: {
     borderWidth: 1,
@@ -264,7 +242,6 @@ const styles = StyleSheet.create({
   },
   optionBlock: { marginBottom: 10 },
   inlineRow: { flexDirection: "row", justifyContent: "space-between" },
-
   imageButton: {
     backgroundColor: "black",
     padding: 8,
@@ -272,7 +249,6 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   imageButtonText: { color: "white", fontWeight: "bold", fontSize: 12 },
-
   addOptionButton: {
     backgroundColor: "#ddd",
     padding: 12,
@@ -281,7 +257,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   addOptionButtonText: { fontWeight: "bold", fontSize: 14 },
-
   addButton: {
     backgroundColor: "black",
     padding: 12,
@@ -289,13 +264,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   addButtonText: { color: "white", fontWeight: "bold", fontSize: 16 },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#ccc",
-    marginVertical: 10,
-  },
-
+  divider: { height: 1, backgroundColor: "#ccc", marginVertical: 10 },
   pollList: { flex: 1 },
   pollItem: {
     backgroundColor: "white",
@@ -309,18 +278,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textAlign: "center",
   },
-
   optionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
     marginTop: 8,
   },
-  optionContainer: {
-    alignItems: "center",
-    margin: 10,
-    width: 140,
-  },
+  optionContainer: { alignItems: "center", margin: 10, width: 140 },
   optionImage: {
     width: 120,
     height: 100,
@@ -336,7 +300,6 @@ const styles = StyleSheet.create({
   },
   voteButtonText: { color: "white", textAlign: "center", fontWeight: "bold" },
   voteCount: { marginTop: 4, color: "#555", fontSize: 12 },
-
   actions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 8 },
   editButton: {
     backgroundColor: "#444",

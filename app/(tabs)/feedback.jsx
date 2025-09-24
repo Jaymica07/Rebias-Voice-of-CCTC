@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   View,
   Text,
@@ -8,97 +8,36 @@ import {
   TextInput,
   Alert,
 } from "react-native";
-import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-
-const STORAGE_KEY = "feedback_list";
-
-const DEFAULT_FEEDBACKS = [
-  {
-    id: "1",
-    name: "Ana Villanueva",
-    message: "The school event last week was very organized, kudos to the team!",
-  },
-  {
-    id: "2",
-    name: "Mark Bautista",
-    message: "I like how the app makes it easy to check announcements.",
-  },
-  {
-    id: "3",
-    name: "Sophia Ramos",
-    message: "Please add more updates about upcoming school programs.",
-  },
-  {
-    id: "4",
-    name: "John Perez",
-    message: "The app is fast and simple to use, very student-friendly.",
-  },
-  {
-    id: "5",
-    name: "Claire Santos",
-    message: "I enjoyed the sports fest! Hoping for more photos in the app soon.",
-  },
-];
+import { useRouter } from "expo-router";
+import { useGoals } from "../../hooks/useGoals";
 
 export default function Feedback() {
   const router = useRouter();
-  const [feedbacks, setFeedbacks] = useState([]);
+  const { user, feedbacks, addFeedback, updateFeedback, deleteFeedback } = useGoals();
+
   const [form, setForm] = useState({ name: "", message: "" });
   const [editingId, setEditingId] = useState(null);
 
-  // Load feedbacks
-  useEffect(() => {
-    const loadFeedbacks = async () => {
-      try {
-        const storedFeedbacks = await AsyncStorage.getItem(STORAGE_KEY);
-        if (storedFeedbacks && JSON.parse(storedFeedbacks).length > 0) {
-          setFeedbacks(JSON.parse(storedFeedbacks));
-        } else {
-          setFeedbacks(DEFAULT_FEEDBACKS);
-          await AsyncStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(DEFAULT_FEEDBACKS)
-          );
-        }
-      } catch (error) {
-        console.error("Failed to load feedbacks:", error);
-      }
-    };
-    loadFeedbacks();
-  }, []);
-
-  // Save changes
-  useEffect(() => {
-    const saveFeedbacks = async () => {
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(feedbacks));
-      } catch (error) {
-        console.error("Failed to save feedbacks:", error);
-      }
-    };
-    if (feedbacks.length >= 0) saveFeedbacks();
-  }, [feedbacks]);
-
-  const handleAddOrEdit = () => {
+  const handleAddOrEdit = async () => {
     const { name, message } = form;
     if (!name || !message) {
       Alert.alert("Error", "Please fill all fields");
       return;
     }
-    if (editingId) {
-      setFeedbacks((prev) =>
-        prev.map((item) =>
-          item.id === editingId ? { ...item, name, message } : item
-        )
-      );
-      setEditingId(null);
-    } else {
-      const newFeedback = { id: Date.now().toString(), name, message };
-      setFeedbacks((prev) => [...prev, newFeedback]);
+
+    try {
+      if (editingId) {
+        await updateFeedback(editingId, { name, message });
+        setEditingId(null);
+      } else {
+        await addFeedback({ name, message });
+      }
+      setForm({ name: "", message: "" });
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Failed to save feedback.");
     }
-    setForm({ name: "", message: "" });
   };
 
   const handleEdit = (item) => {
@@ -106,177 +45,127 @@ export default function Feedback() {
     setEditingId(item.id);
   };
 
-  const handleDelete = (id) => {
-    setFeedbacks((prev) => prev.filter((item) => item.id !== id));
+  const handleDelete = async (id) => {
+    try {
+      await deleteFeedback(id);
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Failed to delete feedback.");
+    }
   };
 
   const renderItem = ({ item }) => (
     <View style={styles.feedbackItem}>
       <Text style={styles.feedbackName}>{item.name}</Text>
       <Text style={styles.feedbackText}>{item.message}</Text>
-      <View style={styles.actions}>
-        <Pressable style={styles.iconButton} onPress={() => handleEdit(item)}>
-          <Ionicons name="pencil" size={18} color="#fff" />
-        </Pressable>
-        <Pressable
-          onPress={() => handleDelete(item.id)}
-          style={styles.deleteButton}
-        >
-          <Ionicons name="trash" size={18} color="#fff" />
-        </Pressable>
-      </View>
+
+      {/* ✅ Only show edit/delete if current user is owner */}
+      {item.ownerId === user?.id && (
+        <View style={styles.actions}>
+          <Pressable style={styles.iconButton} onPress={() => handleEdit(item)}>
+            <Ionicons name="pencil" size={18} color="#fff" />
+          </Pressable>
+          <Pressable style={styles.deleteButton} onPress={() => handleDelete(item.id)}>
+            <Ionicons name="trash" size={18} color="#fff" />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 
-  const handleBack = async () => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(feedbacks));
-    } catch (error) {
-      console.error("Failed to save feedbacks before going back:", error);
-    }
-    router.push("/home");
-  };
-
   return (
     <View style={styles.container}>
-      {/* Back Button */}
-      <Pressable style={styles.backButton} onPress={handleBack}>
+      <Pressable style={styles.backButton} onPress={() => router.push("/home")}>
         <Ionicons name="home" size={20} color="#000" />
-        <Text style={styles.backText}>Back to Home</Text>
+        <Text style={styles.backButtonText}>Back to Home</Text>
       </Pressable>
 
-      <Text style={styles.header}>Feedback</Text>
+      <Text style={styles.title}>💬 Student Feedback</Text>
 
-      {/* Form */}
-      <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="Your Name"
-          placeholderTextColor="#aaa"
-          value={form.name}
-          onChangeText={(text) => setForm({ ...form, name: text })}
-        />
-        <TextInput
-          style={[styles.input, { height: 80 }]}
-          placeholder="Your Feedback"
-          placeholderTextColor="#aaa"
-          value={form.message}
-          multiline
-          onChangeText={(text) => setForm({ ...form, message: text })}
-        />
-        <Pressable style={styles.submitButton} onPress={handleAddOrEdit}>
-          <Text style={styles.submitButtonText}>
-            {editingId ? "Update Feedback" : "Submit Feedback"}
-          </Text>
-        </Pressable>
-      </View>
+      <TextInput
+        style={styles.input}
+        placeholder="Your Name"
+        value={form.name}
+        onChangeText={(text) => setForm({ ...form, name: text })}
+      />
+      <TextInput
+        style={[styles.input, { height: 80 }]}
+        placeholder="Your Feedback"
+        value={form.message}
+        multiline
+        onChangeText={(text) => setForm({ ...form, message: text })}
+      />
 
-      {/* Feedback List */}
+      <Pressable style={styles.addButton} onPress={handleAddOrEdit}>
+        <Text style={styles.addButtonText}>
+          {editingId ? "Update Feedback" : "Submit Feedback"}
+        </Text>
+      </Pressable>
+
       <FlatList
         data={feedbacks}
-        renderItem={renderItem}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 30 }}
-        style={{ marginTop: 20 }}
+        renderItem={renderItem}
+        style={{ marginTop: 20, width: "100%" }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#fff" },
-
+  container: { flex: 1, backgroundColor: "#f8f9fa", padding: 20 },
   backButton: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 20,
     backgroundColor: "#f5f5f5",
-    padding: 10,
-    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#000",
     alignSelf: "flex-start",
   },
-  backText: {
+  backButtonText: {
     color: "#000",
-    marginLeft: 6,
+    fontSize: 16,
     fontWeight: "600",
-    fontSize: 15,
+    fontStyle: "italic",
+    marginLeft: 6,
   },
-
-  header: {
+  title: {
     fontSize: 26,
     fontWeight: "bold",
-    textAlign: "center",
+    marginBottom: 20,
     color: "#000",
-    marginTop: 10,
-    marginBottom: 10,
+    fontStyle: "italic",
   },
-
-  form: { marginTop: 10 },
   input: {
-    backgroundColor: "#fff",
-    color: "#000",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#ddd",
-    fontSize: 14,
+    borderColor: "#000",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: "#fff",
   },
-
-  submitButton: {
+  addButton: {
     backgroundColor: "#000",
     padding: 14,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: "center",
-    marginBottom: 10,
   },
-  submitButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
-
+  addButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   feedbackItem: {
     backgroundColor: "#fff",
     padding: 16,
+    marginVertical: 6,
     borderRadius: 12,
-    marginBottom: 15,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#000",
   },
-  feedbackName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 4,
-  },
-  feedbackText: {
-    fontSize: 14,
-    color: "#444",
-    lineHeight: 20,
-  },
-
-  actions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 10,
-  },
-  iconButton: {
-    backgroundColor: "#333",
-    padding: 6,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-  deleteButton: {
-    backgroundColor: "#e63946",
-    padding: 6,
-    borderRadius: 6,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  feedbackName: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
+  feedbackText: { fontSize: 14, marginBottom: 10 },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },
+  iconButton: { backgroundColor: "#000000ff", padding: 8, borderRadius: 6 },
+  deleteButton: { backgroundColor: "#dc3545", padding: 8, borderRadius: 6 },
 });
